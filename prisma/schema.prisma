@@ -1,0 +1,331 @@
+// NOVACORE Security - Database Schema
+// PostgreSQL with Neon
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// VULNERABILITY MANAGEMENT
+// ============================================
+
+model Vulnerability {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  severity    Severity
+  status      VulnerabilityStatus @default(OPEN)
+  category    String
+  cvssScore   Float?
+  cweId       String?
+  affectedComponent String
+  affectedUrl String?
+  evidenceData String? @db.Text
+  remediation String?  @db.Text
+
+  // Tracking
+  discoveredAt DateTime @default(now())
+  confirmedAt  DateTime?
+  resolvedAt   DateTime?
+
+  // Relations
+  scanId      String?
+  scan        Scan?    @relation(fields: [scanId], references: [id])
+  checklistItemId String?
+  checklistItem   ChecklistItem? @relation(fields: [checklistItemId], references: [id])
+
+  // Audit
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([severity])
+  @@index([status])
+  @@index([category])
+  @@map("vulnerabilities")
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum VulnerabilityStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  FALSE_POSITIVE
+  ACCEPTED_RISK
+}
+
+// ============================================
+// SECURITY SCANS
+// ============================================
+
+model Scan {
+  id          String    @id @default(cuid())
+  name        String
+  type        ScanType
+  status      ScanStatus @default(PENDING)
+  targetUrl   String
+
+  // Configuration
+  config      Json?
+
+  // Results
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?      // in seconds
+  findings    Int       @default(0)
+
+  // Scanner info
+  scanner     String    // zap, nuclei, sqlmap, custom
+  version     String?
+
+  // Relations
+  vulnerabilities Vulnerability[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@map("scans")
+}
+
+enum ScanType {
+  FULL
+  QUICK
+  API
+  AUTHENTICATION
+  INJECTION
+  CUSTOM
+}
+
+enum ScanStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ============================================
+// SECURITY CHECKLIST (CNBV/ISO 27001)
+// ============================================
+
+model ChecklistCategory {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  order       Int
+  icon        String?
+
+  items       ChecklistItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("checklist_categories")
+}
+
+model ChecklistItem {
+  id          String   @id @default(cuid())
+  code        String   @unique // e.g., "AUTH-001"
+  title       String
+  description String   @db.Text
+  requirement String   @db.Text
+
+  // Compliance
+  status      ComplianceStatus @default(NOT_EVALUATED)
+  evidence    String?  @db.Text
+  notes       String?  @db.Text
+
+  // Classification
+  priority    Priority @default(HIGH)
+  standard    String   // CNBV, ISO27001, PCI-DSS, etc.
+
+  // Relations
+  categoryId  String
+  category    ChecklistCategory @relation(fields: [categoryId], references: [id])
+  vulnerabilities Vulnerability[]
+
+  // Audit
+  evaluatedAt DateTime?
+  evaluatedBy String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([categoryId])
+  @@map("checklist_items")
+}
+
+enum ComplianceStatus {
+  NOT_EVALUATED
+  COMPLIANT
+  PARTIAL
+  NON_COMPLIANT
+  NOT_APPLICABLE
+}
+
+enum Priority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+// ============================================
+// REPORTS
+// ============================================
+
+model Report {
+  id          String   @id @default(cuid())
+  title       String
+  type        ReportType
+  period      String   // e.g., "2024-W01" for weekly
+
+  // Summary
+  summary     Json
+
+  // Stats
+  totalVulnerabilities Int @default(0)
+  criticalCount        Int @default(0)
+  highCount            Int @default(0)
+  mediumCount          Int @default(0)
+  lowCount             Int @default(0)
+
+  // Compliance
+  complianceScore      Float? // 0-100
+
+  // Content
+  content     Json?
+
+  // Status
+  status      ReportStatus @default(DRAFT)
+  publishedAt DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([period])
+  @@map("reports")
+}
+
+enum ReportType {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  INCIDENT
+  AUDIT
+}
+
+enum ReportStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// ============================================
+// TARGETS & CONFIGURATION
+// ============================================
+
+model Target {
+  id          String   @id @default(cuid())
+  name        String
+  url         String
+  type        TargetType
+  environment Environment
+
+  // Authentication
+  authConfig  Json?
+
+  // Settings
+  isActive    Boolean  @default(true)
+  scanSchedule String? // cron expression
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("targets")
+}
+
+enum TargetType {
+  WEB_APP
+  API
+  INTERNAL
+}
+
+enum Environment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+// ============================================
+// ALERTS & NOTIFICATIONS
+// ============================================
+
+model Alert {
+  id          String   @id @default(cuid())
+  type        AlertType
+  severity    Severity
+  title       String
+  message     String   @db.Text
+
+  // Status
+  isRead      Boolean  @default(false)
+  isResolved  Boolean  @default(false)
+
+  // Metadata
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@index([isRead])
+  @@index([severity])
+  @@map("alerts")
+}
+
+enum AlertType {
+  NEW_VULNERABILITY
+  SCAN_COMPLETED
+  SCAN_FAILED
+  COMPLIANCE_CHANGE
+  SYSTEM
+}
+
+// ============================================
+// AUDIT LOG
+// ============================================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  entityType  String
+  entityId    String?
+  userId      String?
+  userEmail   String?
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
