@@ -1,6 +1,6 @@
 # NOVACORE Security
 
-Sistema de seguridad automatizado para monitoreo de vulnerabilidades y cumplimiento normativo (CNBV/ISO 27001) del sistema financiero NOVACORE.
+Sistema de seguridad automatizados para monitoreo de vulnerabilidades y cumplimiento normativo (CNBV/ISO 27001) del sistema financiero NOVACORE.
 
 ## Arquitectura
 
